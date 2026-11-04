@@ -1,0 +1,2 @@
+timestamp,name,email,company,message,utm_source,utm_campaign,status,crm_id,ai_category,ai_subject,ai_draft
+2026-10-28T10:00:00+01:00,DEMO Reporting Fixture,demo-report@example.com,Fictional Company,Synthetic historical lead for reporting verification only.,demo,DEMO_phase3,test_fixture,DEMO-PHASE3-1,,,

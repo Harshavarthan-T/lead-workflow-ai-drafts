@@ -1,0 +1,1 @@
+Open the lead form with campaign parameters, submit a fictional enquiry and inspect its CRM row and Gmail draft. Repeat the exact submission, then change its message. Compare the CRM ID and number of drafts. Upload the demo CSV to Drive and run the report using the instructions in the README.

@@ -1,0 +1,1 @@
+Upload the contents of this package to your chosen GitHub repository. Select a license if desired. Keep private n8n storage, execution logs, account IDs and credential exports outside the repository. Configure credentials after importing the workflow templates.

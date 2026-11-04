@@ -1,0 +1,3 @@
+week_start,campaign_name,reach,impressions,link_clicks,amount_spent_eur,leads,ctr,cpl_eur,report_key
+2026-10-26,DEMO_phase3,800,1000,50,40,1,0.05,40,"[""2026-10-26"",""DEMO_phase3""]"
+2026-10-26,DEMO_zero_leads,400,500,10,15,0,0.02,no leads,"[""2026-10-26"",""DEMO_zero_leads""]"
