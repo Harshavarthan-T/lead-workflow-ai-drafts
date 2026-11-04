@@ -1,0 +1,55 @@
+{
+  "name": "Lead workflow failure review",
+  "connections": {
+    "On failed execution": {
+      "main": [
+        [
+          {
+            "node": "Create failure review draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "dc591d04-cedb-48f8-b071-82476e99f06c",
+      "name": "On failed execution",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "857befcb-7de8-4d37-bd7c-e436937f7376",
+      "name": "Create failure review draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "parameters": {
+        "resource": "draft",
+        "operation": "create",
+        "subject": "Local n8n workflow failed",
+        "emailType": "text",
+        "message": "={{ 'Review execution '+$json.execution.id+' in local n8n.' }}",
+        "options": {
+          "sendTo": "owner@example.com"
+        }
+      },
+      "position": [
+        220,
+        0
+      ]
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,234 @@
+{
+  "name": "Phase 3A - Import weekly ad CSV",
+  "connections": {
+    "Upload ad CSV": {
+      "main": [
+        [
+          {
+            "node": "Read CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV": {
+      "main": [
+        [
+          {
+            "node": "Validate export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate export": {
+      "main": [
+        [
+          {
+            "node": "Upsert ad rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "20d990b2-18b2-426b-ad56-068c075fc24e",
+      "name": "Upload ad CSV",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "formTitle": "Import weekly ad export",
+        "formDescription": "One campaign per Monday-Sunday week, EUR only. Upload the normalized CSV template. Re-uploading replaces the same campaign/week.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "ad_export",
+              "fieldType": "file",
+              "multipleFiles": false,
+              "acceptFileTypes": ".csv",
+              "requiredField": true
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "useWorkflowTimezone": true
+        }
+      },
+      "webhookId": "04f79a70-9a1a-4859-83f2-03346709e1db"
+    },
+    {
+      "id": "602ba9e5-3999-473b-8d5b-2c4cb0f61ce7",
+      "name": "Read CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "ad_export",
+        "options": {
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "1e3fa280-dc3f-41e4-8b1d-a12ac3dfcb9b",
+      "name": "Validate export",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Shared by the n8n Code nodes and offline tests. No external dependencies.\nfunction isoDate(value) {\n  const s = String(value ?? '').trim();\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(s) || !Number.isFinite(Date.parse(s)) || new Date(s).toISOString().slice(0, 10) !== s)\n    throw new Error('Dates must be real YYYY-MM-DD dates: ' + s);\n  return s;\n}\nfunction berlinDate(value) {\n  const d = new Date(value);\n  if (!Number.isFinite(d.getTime())) throw new Error('Invalid timestamp: ' + value);\n  const parts = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(d);\n  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));\n  return `${p.year}-${p.month}-${p.day}`;\n}\nfunction monday(date) {\n  const d = new Date(isoDate(date));\n  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);\n  return d.toISOString().slice(0, 10);\n}\nfunction key(week, campaign) { return JSON.stringify([week, campaign]); }\nfunction validateAds(rows, now = new Date().toISOString()) {\n  const seen = new Set();\n  return rows.filter(r => Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())).map(r => {\n    const start = isoDate(r.report_start), end = isoDate(r.report_end);\n    if (monday(start) !== start || Date.parse(end) - Date.parse(start) !== 6 * 86400000)\n      throw new Error('Export must cover one complete Monday-Sunday week');\n    if (end >= berlinDate(now)) throw new Error('Export week is not complete yet');\n    const campaign = String(r.campaign_name ?? '').trim();\n    if (!campaign || campaign.length > 200) throw new Error('Campaign name is required (max 200 characters)');\n    const exportKey = key(start, campaign);\n    if (seen.has(exportKey)) throw new Error('Duplicate campaign/week: ' + exportKey);\n    seen.add(exportKey);\n    const result = {report_start:start, report_end:end, campaign_name:campaign};\n    for (const field of ['reach','impressions','link_clicks','amount_spent_eur']) {\n      const text = String(r[field] ?? '').trim();\n      if (!/^\\d+(\\.\\d+)?$/.test(text)) throw new Error(field + ' requires a non-negative number with a decimal point, no currency or separators');\n      const n = Number(text);\n      if (!Number.isFinite(n) || n > Number.MAX_SAFE_INTEGER || (field !== 'amount_spent_eur' && !Number.isSafeInteger(n))) throw new Error('Invalid ' + field);\n      result[field] = n;\n    }\n    if (result.reach > result.impressions || result.link_clicks > result.impressions) throw new Error('Reach/clicks cannot exceed impressions for this report contract');\n    result.amount_spent_eur = Math.round(result.amount_spent_eur * 100) / 100;\n    return {...result, imported_at: now, export_key:exportKey};\n  });\n}\nfunction buildReport(ads, leads, now = new Date().toISOString()) {\n  const valid = validateAds(ads, now);\n  const counts = new Map(), seen = new Set();\n  for (const r of leads) {\n    if (!Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())) continue;\n    const id = String(r.crm_id ?? '').trim();\n    if (!id || seen.has(id)) throw new Error('Missing or duplicate crm_id; fix Leads before reporting');\n    seen.add(id);\n    if (!/^\\d{4}-\\d{2}-\\d{2}T.+(?:Z|[+-]\\d{2}:\\d{2})$/.test(String(r.timestamp))) throw new Error('Lead timestamp requires an explicit timezone');\n    const week = monday(berlinDate(r.timestamp));\n    const campaign = String(r.utm_campaign ?? '').trim();\n    if (!campaign) continue; // Organic/unattributed enquiries are not paid campaign leads.\n    const k = key(week, campaign);\n    counts.set(k, (counts.get(k) || 0) + 1);\n  }\n  return valid.map(r => {\n    const leads = counts.get(r.export_key) || 0;\n    return {week_start:r.report_start, campaign_name:r.campaign_name, reach:r.reach,\n      impressions:r.impressions, link_clicks:r.link_clicks, amount_spent_eur:r.amount_spent_eur,\n      leads, ctr:r.impressions ? r.link_clicks/r.impressions : '',\n      cpl_eur:leads ? Math.round(r.amount_spent_eur/leads*100)/100 : '', report_key:r.export_key};\n  }).sort((a,b) => a.report_key.localeCompare(b.report_key));\n}\nif (typeof module !== 'undefined') module.exports = {validateAds, buildReport, monday, berlinDate};\n\nreturn validateAds($input.all().map(i => i.json)).map(json => ({json}));"
+      }
+    },
+    {
+      "id": "058bbe91-f26d-4a1f-854e-3f73b82c03b4",
+      "name": "Upsert ad rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        780,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AdData",
+          "mode": "name"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "report_start": "={{ $json.report_start }}",
+            "report_end": "={{ $json.report_end }}",
+            "campaign_name": "={{ $json.campaign_name }}",
+            "reach": "={{ $json.reach }}",
+            "impressions": "={{ $json.impressions }}",
+            "link_clicks": "={{ $json.link_clicks }}",
+            "amount_spent_eur": "={{ $json.amount_spent_eur }}",
+            "imported_at": "={{ $json.imported_at }}",
+            "export_key": "={{ $json.export_key }}"
+          },
+          "matchingColumns": [
+            "export_key"
+          ],
+          "schema": [
+            {
+              "id": "report_start",
+              "displayName": "report_start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "report_end",
+              "displayName": "report_end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "campaign_name",
+              "displayName": "campaign_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reach",
+              "displayName": "reach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "impressions",
+              "displayName": "impressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link_clicks",
+              "displayName": "link_clicks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_spent_eur",
+              "displayName": "amount_spent_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "imported_at",
+              "displayName": "imported_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "export_key",
+              "displayName": "export_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1"
+  }
+}

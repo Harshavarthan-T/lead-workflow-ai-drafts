@@ -1,0 +1,580 @@
+{
+  "name": "Phase 3B - Weekly campaign report",
+  "connections": {
+    "Run report now": {
+      "main": [
+        [
+          {
+            "node": "Find ad exports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find ad exports": {
+      "main": [
+        [
+          {
+            "node": "Select newest CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select newest CSV": {
+      "main": [
+        [
+          {
+            "node": "Download newest CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download newest CSV": {
+      "main": [
+        [
+          {
+            "node": "Read CSV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read CSV": {
+      "main": [
+        [
+          {
+            "node": "Validate export",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate export": {
+      "main": [
+        [
+          {
+            "node": "Upsert ad rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert ad rows": {
+      "main": [
+        [
+          {
+            "node": "Read ad exports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read ad exports": {
+      "main": [
+        [
+          {
+            "node": "Read leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read leads": {
+      "main": [
+        [
+          {
+            "node": "Calculate weekly metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate weekly metrics": {
+      "main": [
+        [
+          {
+            "node": "Upsert weekly report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monday 08:00 Berlin": {
+      "main": [
+        [
+          {
+            "node": "Find ad exports",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodes": [
+    {
+      "id": "6d633857-57dc-4bdf-b327-141a679afbf9",
+      "name": "Run report now",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "7fa99bf5-5f54-49ff-a42c-94b02710998f",
+      "name": "Find ad exports",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "parameters": {
+        "resource": "fileFolder",
+        "operation": "search",
+        "searchMethod": "query",
+        "queryString": "'REPLACE_WITH_YOUR_FOLDER_ID' in parents and trashed = false and mimeType = 'text/csv'",
+        "returnAll": true,
+        "options": {
+          "fields": [
+            "*"
+          ]
+        }
+      },
+      "position": [
+        220,
+        0
+      ]
+    },
+    {
+      "id": "a457b649-1408-41ee-8bfe-243645b04bc6",
+      "name": "Select newest CSV",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "return $input.all().sort((a,b)=>b.json.modifiedTime.localeCompare(a.json.modifiedTime)||b.json.id.localeCompare(a.json.id)).slice(0,1);"
+      },
+      "position": [
+        440,
+        0
+      ]
+    },
+    {
+      "id": "7df3e554-88ff-4016-b6e2-d0936872c6b4",
+      "name": "Download newest CSV",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {}
+      },
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "id": "66e57658-779b-4b31-90e5-415dd015d714",
+      "name": "Read CSV",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "operation": "csv",
+        "binaryPropertyName": "data",
+        "options": {
+          "headerRow": true
+        }
+      }
+    },
+    {
+      "id": "d3d9bc27-cd6d-472b-a791-6615d9b9c427",
+      "name": "Validate export",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Shared by the n8n Code nodes and offline tests. No external dependencies.\nfunction isoDate(value) {\n  const s = String(value ?? '').trim();\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(s) || !Number.isFinite(Date.parse(s)) || new Date(s).toISOString().slice(0, 10) !== s)\n    throw new Error('Dates must be real YYYY-MM-DD dates: ' + s);\n  return s;\n}\nfunction berlinDate(value) {\n  const d = new Date(value);\n  if (!Number.isFinite(d.getTime())) throw new Error('Invalid timestamp: ' + value);\n  const parts = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(d);\n  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));\n  return `${p.year}-${p.month}-${p.day}`;\n}\nfunction monday(date) {\n  const d = new Date(isoDate(date));\n  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);\n  return d.toISOString().slice(0, 10);\n}\nfunction key(week, campaign) { return JSON.stringify([week, campaign]); }\nfunction validateAds(rows, now = new Date().toISOString()) {\n  const seen = new Set();\n  return rows.filter(r => Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())).map(r => {\n    const start = isoDate(r.report_start), end = isoDate(r.report_end);\n    if (monday(start) !== start || Date.parse(end) - Date.parse(start) !== 6 * 86400000)\n      throw new Error('Export must cover one complete Monday-Sunday week');\n    if (end >= berlinDate(now)) throw new Error('Export week is not complete yet');\n    const campaign = String(r.campaign_name ?? '').trim();\n    if (!campaign || campaign.length > 200) throw new Error('Campaign name is required (max 200 characters)');\n    const exportKey = key(start, campaign);\n    if (seen.has(exportKey)) throw new Error('Duplicate campaign/week: ' + exportKey);\n    seen.add(exportKey);\n    const result = {report_start:start, report_end:end, campaign_name:campaign};\n    for (const field of ['reach','impressions','link_clicks','amount_spent_eur']) {\n      const text = String(r[field] ?? '').trim();\n      if (!/^\\d+(\\.\\d+)?$/.test(text)) throw new Error(field + ' requires a non-negative number with a decimal point, no currency or separators');\n      const n = Number(text);\n      if (!Number.isFinite(n) || n > Number.MAX_SAFE_INTEGER || (field !== 'amount_spent_eur' && !Number.isSafeInteger(n))) throw new Error('Invalid ' + field);\n      result[field] = n;\n    }\n    if (result.reach > result.impressions || result.link_clicks > result.impressions) throw new Error('Reach/clicks cannot exceed impressions for this report contract');\n    result.amount_spent_eur = Math.round(result.amount_spent_eur * 100) / 100;\n    return {...result, imported_at: now, export_key:exportKey};\n  });\n}\nfunction buildReport(ads, leads, now = new Date().toISOString()) {\n  const valid = validateAds(ads, now);\n  const counts = new Map(), seen = new Set();\n  for (const r of leads) {\n    if (!Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())) continue;\n    const id = String(r.crm_id ?? '').trim();\n    if (!id || seen.has(id)) throw new Error('Missing or duplicate crm_id; fix Leads before reporting');\n    seen.add(id);\n    if (!/^\\d{4}-\\d{2}-\\d{2}T.+(?:Z|[+-]\\d{2}:\\d{2})$/.test(String(r.timestamp))) throw new Error('Lead timestamp requires an explicit timezone');\n    const week = monday(berlinDate(r.timestamp));\n    const campaign = String(r.utm_campaign ?? '').trim();\n    if (!campaign) continue; // Organic/unattributed enquiries are not paid campaign leads.\n    const k = key(week, campaign);\n    counts.set(k, (counts.get(k) || 0) + 1);\n  }\n  return valid.map(r => {\n    const leads = counts.get(r.export_key) || 0;\n    return {week_start:r.report_start, campaign_name:r.campaign_name, reach:r.reach,\n      impressions:r.impressions, link_clicks:r.link_clicks, amount_spent_eur:r.amount_spent_eur,\n      leads, ctr:r.impressions ? r.link_clicks/r.impressions : '',\n      cpl_eur:leads ? Math.round(r.amount_spent_eur/leads*100)/100 : '', report_key:r.export_key};\n  }).sort((a,b) => a.report_key.localeCompare(b.report_key));\n}\nif (typeof module !== 'undefined') module.exports = {validateAds, buildReport, monday, berlinDate};\n\nreturn validateAds($input.all().map(i => i.json)).map(json => ({json}));"
+      }
+    },
+    {
+      "id": "337648e1-9dbc-4c01-8d39-5f418924fb1e",
+      "name": "Upsert ad rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AdData",
+          "mode": "name"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "report_start": "={{ $json.report_start }}",
+            "report_end": "={{ $json.report_end }}",
+            "campaign_name": "={{ $json.campaign_name }}",
+            "reach": "={{ $json.reach }}",
+            "impressions": "={{ $json.impressions }}",
+            "link_clicks": "={{ $json.link_clicks }}",
+            "amount_spent_eur": "={{ $json.amount_spent_eur }}",
+            "imported_at": "={{ $json.imported_at }}",
+            "export_key": "={{ $json.export_key }}"
+          },
+          "matchingColumns": [
+            "export_key"
+          ],
+          "schema": [
+            {
+              "id": "report_start",
+              "displayName": "report_start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "report_end",
+              "displayName": "report_end",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "campaign_name",
+              "displayName": "campaign_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reach",
+              "displayName": "reach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "impressions",
+              "displayName": "impressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link_clicks",
+              "displayName": "link_clicks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_spent_eur",
+              "displayName": "amount_spent_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "imported_at",
+              "displayName": "imported_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "export_key",
+              "displayName": "export_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "27dfc0ab-c521-4de5-9a9f-de49e831b0c9",
+      "name": "Read ad exports",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AdData",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "1c7ffeec-0b57-4e66-843b-79b6cb5f019b",
+      "name": "Read leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "id": "23630bab-89de-4eee-a542-c1ce7810279f",
+      "name": "Calculate weekly metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Shared by the n8n Code nodes and offline tests. No external dependencies.\nfunction isoDate(value) {\n  const s = String(value ?? '').trim();\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(s) || !Number.isFinite(Date.parse(s)) || new Date(s).toISOString().slice(0, 10) !== s)\n    throw new Error('Dates must be real YYYY-MM-DD dates: ' + s);\n  return s;\n}\nfunction berlinDate(value) {\n  const d = new Date(value);\n  if (!Number.isFinite(d.getTime())) throw new Error('Invalid timestamp: ' + value);\n  const parts = new Intl.DateTimeFormat('en-CA', {timeZone:'Europe/Berlin', year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(d);\n  const p = Object.fromEntries(parts.map(x => [x.type, x.value]));\n  return `${p.year}-${p.month}-${p.day}`;\n}\nfunction monday(date) {\n  const d = new Date(isoDate(date));\n  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);\n  return d.toISOString().slice(0, 10);\n}\nfunction key(week, campaign) { return JSON.stringify([week, campaign]); }\nfunction validateAds(rows, now = new Date().toISOString()) {\n  const seen = new Set();\n  return rows.filter(r => Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())).map(r => {\n    const start = isoDate(r.report_start), end = isoDate(r.report_end);\n    if (monday(start) !== start || Date.parse(end) - Date.parse(start) !== 6 * 86400000)\n      throw new Error('Export must cover one complete Monday-Sunday week');\n    if (end >= berlinDate(now)) throw new Error('Export week is not complete yet');\n    const campaign = String(r.campaign_name ?? '').trim();\n    if (!campaign || campaign.length > 200) throw new Error('Campaign name is required (max 200 characters)');\n    const exportKey = key(start, campaign);\n    if (seen.has(exportKey)) throw new Error('Duplicate campaign/week: ' + exportKey);\n    seen.add(exportKey);\n    const result = {report_start:start, report_end:end, campaign_name:campaign};\n    for (const field of ['reach','impressions','link_clicks','amount_spent_eur']) {\n      const text = String(r[field] ?? '').trim();\n      if (!/^\\d+(\\.\\d+)?$/.test(text)) throw new Error(field + ' requires a non-negative number with a decimal point, no currency or separators');\n      const n = Number(text);\n      if (!Number.isFinite(n) || n > Number.MAX_SAFE_INTEGER || (field !== 'amount_spent_eur' && !Number.isSafeInteger(n))) throw new Error('Invalid ' + field);\n      result[field] = n;\n    }\n    if (result.reach > result.impressions || result.link_clicks > result.impressions) throw new Error('Reach/clicks cannot exceed impressions for this report contract');\n    result.amount_spent_eur = Math.round(result.amount_spent_eur * 100) / 100;\n    return {...result, imported_at: now, export_key:exportKey};\n  });\n}\nfunction buildReport(ads, leads, now = new Date().toISOString()) {\n  const valid = validateAds(ads, now);\n  const counts = new Map(), seen = new Set();\n  for (const r of leads) {\n    if (!Object.keys(r).some(k => k !== 'row_number' && String(r[k] ?? '').trim())) continue;\n    const id = String(r.crm_id ?? '').trim();\n    if (!id || seen.has(id)) throw new Error('Missing or duplicate crm_id; fix Leads before reporting');\n    seen.add(id);\n    if (!/^\\d{4}-\\d{2}-\\d{2}T.+(?:Z|[+-]\\d{2}:\\d{2})$/.test(String(r.timestamp))) throw new Error('Lead timestamp requires an explicit timezone');\n    const week = monday(berlinDate(r.timestamp));\n    const campaign = String(r.utm_campaign ?? '').trim();\n    if (!campaign) continue; // Organic/unattributed enquiries are not paid campaign leads.\n    const k = key(week, campaign);\n    counts.set(k, (counts.get(k) || 0) + 1);\n  }\n  return valid.map(r => {\n    const leads = counts.get(r.export_key) || 0;\n    return {week_start:r.report_start, campaign_name:r.campaign_name, reach:r.reach,\n      impressions:r.impressions, link_clicks:r.link_clicks, amount_spent_eur:r.amount_spent_eur,\n      leads, ctr:r.impressions ? r.link_clicks/r.impressions : '',\n      cpl_eur:leads ? Math.round(r.amount_spent_eur/leads*100)/100 : '', report_key:r.export_key};\n  }).sort((a,b) => a.report_key.localeCompare(b.report_key));\n}\nif (typeof module !== 'undefined') module.exports = {validateAds, buildReport, monday, berlinDate};\n\nreturn buildReport($('Read ad exports').all().map(i => i.json), $input.all().map(i => i.json)).map(json => ({json}));"
+      }
+    },
+    {
+      "id": "40f66343-4f13-45c2-be3c-c1a06dec8f8f",
+      "name": "Upsert weekly report",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2200,
+        0
+      ],
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "REPLACE_WITH_YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Weekly",
+          "mode": "name"
+        },
+        "options": {
+          "cellFormat": "RAW"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week_start": "={{ $json.week_start }}",
+            "campaign_name": "={{ $json.campaign_name }}",
+            "reach": "={{ $json.reach }}",
+            "impressions": "={{ $json.impressions }}",
+            "link_clicks": "={{ $json.link_clicks }}",
+            "amount_spent_eur": "={{ $json.amount_spent_eur }}",
+            "leads": "={{ $json.leads }}",
+            "ctr": "={{ $json.ctr }}",
+            "cpl_eur": "={{ $json.leads === 0 ? 'no leads' : $json.cpl_eur }}",
+            "report_key": "={{ $json.report_key }}"
+          },
+          "matchingColumns": [
+            "report_key"
+          ],
+          "schema": [
+            {
+              "id": "week_start",
+              "displayName": "week_start",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "campaign_name",
+              "displayName": "campaign_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "reach",
+              "displayName": "reach",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "impressions",
+              "displayName": "impressions",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "link_clicks",
+              "displayName": "link_clicks",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount_spent_eur",
+              "displayName": "amount_spent_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "leads",
+              "displayName": "leads",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ctr",
+              "displayName": "ctr",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "cpl_eur",
+              "displayName": "cpl_eur",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "report_key",
+              "displayName": "report_key",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    },
+    {
+      "id": "b7fa50a9-50e2-4e7b-bd5f-ef5c5d612abb",
+      "name": "Monday 08:00 Berlin",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        180
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "timezone": "Europe/Berlin",
+    "executionOrder": "v1"
+  }
+}
